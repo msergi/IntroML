@@ -7,4 +7,4 @@ Solutions to introductory machine learning problems from Kaggle Competitions.
 
 ### Digit Recognizer
 * See the competition webpage [here](https://www.kaggle.com/c/digit-recognizer).
-* See the notebook [here](digit-recognizer/digit-recognizer.ipynb). Score: 0.99071.
+* See the notebook [here](digit-recognizer/digit-recognizer.ipynb). Score: 0.99000.
