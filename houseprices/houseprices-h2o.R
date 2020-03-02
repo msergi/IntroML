@@ -4,21 +4,23 @@
 #######################################################################
 
 library(data.table)
-library(h2o)
 library(mice)
 
-setwd('~Desktop/ml/houseprices')
+setwd('~/Desktop/intro-ml/houseprices')
 
-hp <- read.csv('train.csv')
+# hp <- read.csv('train.csv') # house prices
+hp <- fread('train.csv')
+
 dim(hp)
 head(hp)
-
 summary(hp)
-#apply(hp, 2, function(x) {sum(is.na(x))})
-
+nas <- apply(hp, 2, function(x) {sum(is.na(x))})
+nas[nas > 0]
 # Target: Sales Price
 
 hp <- hp[,-1] # Removing Id column
+dim(hp)
+# 79 features + 1 target
 
 #######################################################################
 # Data Cleaning
@@ -31,35 +33,38 @@ nums <- unlist(lapply(hp, is.numeric))
 names(hp)[nums]
 
 # Although represented with numbers, some columns are categorical
-hp$MSSubClass <- as.factor(hp$MSSubClass)
-hp$OverallQual <- as.factor(hp$OverallQual)
-hp$OverallCond <- as.factor(hp$OverallCond)
+# Conversion:
+catcols <- c('MSSubClass', 'OverallQual', 'OverallCond')
+hp[, (catcols) := lapply(.SD, as.factor), .SDcols = catcols]
 
 # Which numeric variables do have missing values?
-numsna <- apply(hp[,nums], 2, function(x) {sum(is.na(x))})
-numsna <- names(hp[,nums])[numsna > 0]
+numsna <- apply(hp[,..nums], 2, function(x) {sum(is.na(x))})
+numsna <- names(hp[,..nums])[numsna > 0]
 numsna
-# "LotFrontage" "MasVnrArea"  "GarageYrBlt"
+# 'LotFrontage' 'MasVnrArea'  'GarageYrBlt'
 
-## Imputation 
-plot(density(hp$LotFrontage, na.rm = T))
+# Imputation 
+plot(density(hp$LotFrontage, na.rm = T), main = 'LotFrontage density')
 
-
-imputed <- mice(hp[,numsna],
+imputed <- mice(hp[,..numsna],
                 m = 5, 
                 maxit = 50, 
-                method = "pmm",
+                method = 'pmm',
                 seed = 2020)
 
 complete.data <- mice::complete(imputed)
-hp$LotFrontage <- complete.data$LotFrontage
-hp$MasVnrArea <- complete.data$MasVnrArea
-hp$GarageYrBlt <- complete.data$GarageYrBlt
+for (coln in numsna){
+    hp[, (coln) := complete.data[, coln]]
+}
 
 # Checking correlations
-corr <- round(cor(hp[,nums]), 2)
-col <- colorRampPalette(c("yellow", "black", "cyan"))(256)
-heatmap(corr, col=col, symm=TRUE)
+nums <- unlist(lapply(hp, is.numeric))
+col <- colorRampPalette(c('yellow', 'black', 'cyan'))(256)
+corr <- round(cor(hp[,..nums]), 2)
+corr2 <- (round(cor(hp[,..nums], method = 'spearman'), 2))
+par(mfrow = c(1, 2))
+heatmap(corr, col = col, symm = T)
+heatmap(corr2, col = col, symm = T)
 
 install.packages('car')
 scatterplotMatrix
@@ -72,17 +77,22 @@ names(hp)[cats]
 
 # Which categories do have missing values?
 catsna <- apply(hp[,cats], 2, function(x) {sum(is.na(x))})
-catsna <- names(hp[,cats])[numsna > 0]
+catsna <- names(hp[,cats])[catsna > 0]
 catsna
+summary(hp[catsna])
 
-########################################
+hp[is.na(PoolQC), PoolQC := 'NoPool']
+hp[is.na(Fence), Fence := 'NoFence']
+
+#######################################################################
 # Training
-########################################
+#######################################################################
 
+library(h2o)
 h2o.init()
 
 parts <- h2o.split(hp, c(0.6, 0.2) )
 train <- parts[[1]]
 valid <- parts[[2]]
 test <- parts[[3]]
-rm(parts) #Optional
+rm(parts)
