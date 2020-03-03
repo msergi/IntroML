@@ -9,7 +9,7 @@ library(mice)
 setwd('~/Desktop/intro-ml/houseprices')
 
 # hp <- read.csv('train.csv') # house prices
-hp <- fread('train.csv')
+hp <- fread('train.csv', stringsAsFactor = T)
 
 dim(hp)
 head(hp)
@@ -29,8 +29,8 @@ dim(hp)
 ## NUMERICAL VARIABLES
 
 # Which variables are numeric?
-nums <- unlist(lapply(hp, is.numeric))
-names(hp)[nums]
+filt <- unlist(lapply(hp, is.numeric))
+nums <- names(hp)[filt]
 
 # Although represented with numbers, some columns are categorical
 # Conversion:
@@ -39,7 +39,7 @@ hp[, (catcols) := lapply(.SD, as.factor), .SDcols = catcols]
 
 # Which numeric variables do have missing values?
 numsna <- apply(hp[,..nums], 2, function(x) {sum(is.na(x))})
-numsna <- names(hp[,..nums])[numsna > 0]
+numsna <- names(numsna[numsna > 0])
 numsna
 # 'LotFrontage' 'MasVnrArea'  'GarageYrBlt'
 
@@ -66,23 +66,40 @@ par(mfrow = c(1, 2))
 heatmap(corr, col = col, symm = T)
 heatmap(corr2, col = col, symm = T)
 
-install.packages('car')
-scatterplotMatrix
+# install.packages('car')
+# scatterplotMatrix
 
 ## CATEGORICAL VARIABLES
 
 # Which variables are categorical?
-cats <- unlist(lapply(hp, is.factor))
-names(hp)[cats]
+filt <- unlist(lapply(hp, is.factor))
+cats <- names(hp)[filt]
 
 # Which categories do have missing values?
-catsna <- apply(hp[,cats], 2, function(x) {sum(is.na(x))})
-catsna <- names(hp[,cats])[catsna > 0]
+catsna <- apply(hp[,..cats], 2, function(x) {sum(is.na(x))})
+catsna <- names(catsna[catsna > 0])
 catsna
-summary(hp[catsna])
+summary(hp[,..catsna])
 
+fullcats <- cats[!(cats %in% catsna)] # No NAs subset
+calc_anova <- function(x) {
+    an <- anova(lm(hp[, SalePrice] ~ x))
+    an[1,5]
+}
+
+res <- hp[, lapply(.SD, calc_anova), .SDcols = fullcats]
+data.frame("p-value" = unlist(res),
+           "significant?" = (unlist(res) < 0.05))
+
+sprice <- hp[, SalePrice]
+boxplot(sprice ~ hp[, Street]) # Similar dist
+boxplot(sprice ~ hp[, Utilities]) # Low counts in 1 group (1)
+boxplot(sprice ~ hp[, LandSlope]) # Similar dist
+
+# Handling missing values
 hp[is.na(PoolQC), PoolQC := 'NoPool']
 hp[is.na(Fence), Fence := 'NoFence']
+
 
 #######################################################################
 # Training
