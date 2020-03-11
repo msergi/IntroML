@@ -157,12 +157,19 @@ myfillna = function(DT, columns = names(DT), fill = NA) {
 myfillna(test, catsna, 'None')
 any(is.na(test))
 
+test.kaggle <- test
+
+saveRDS(hp, 'hp.RDS')
+saveRDS(test.kaggle, 'test.kaggle.RDS')
+hp <- readRDS('hp.RDS')
+test.kaggle <- readRDS('test.kaggle.RDS')
+
 #######################################################################
 # Training
 #######################################################################
 
 library(h2o)
-h2o.init(nthreads = 2)
+h2o.init(nthreads = 1)
 hp <- as.h2o(hp)
 
 parts <- h2o.splitFrame(hp, c(0.6, 0.2), seed = 2020)
@@ -178,14 +185,20 @@ m <- h2o.gbm(x, y, training_frame = train, validation_frame = valid)
 p <- h2o.predict(m, test)
 
 h2o.performance(model = m, newdata = test)
+# MSE:  694751153
+# RMSE:  26358.13
+# MAE:  16868.22
+# RMSLE:  0.1521004
+# Mean Residual Deviance :  694751153
+# R^2 :  0.8906238
 
 results <- as.data.frame(h2o.cbind(test$SalePrice, p$predict))
 head(results)
 
-gbm_params1 <- list(learn_rate = c(0.01, 0.1),
-                    max_depth = c(4, 5, 8),
+gbm_params1 <- list(learn_rate = c(0.05, 0.1),
+                    max_depth = c(3, 4, 5),
                     sample_rate = c(0.8, 1.0),
-                    col_sample_rate = c(0.1, 0.2, 0.5))
+                    col_sample_rate = c(0.1, 0.2))
 
 
 gbm_grid1 <- h2o.grid("gbm", x = x, y = y,
@@ -212,9 +225,37 @@ best_gbm_perf1 <- h2o.performance(model = best_gbm1,
                                   newdata = test)
 h2o.mse(best_gbm_perf1)
 
-## Prediction
+#################
+# xgboost
 
+xgb_params <- list(learn_rate = c(0.1, 0.3, 0.5),
+                   max_depth = c(3, 6, 9),
+                   sample_rate = c(0.5, 0.8, 1),
+                   col_sample_rate = c(0.5, 0.8, 1))
 
+xgb_grid <- h2o.grid("xgboost", x = x, y = y,
+                      grid_id = "xgb",
+                      training_frame = train,
+                      validation_frame = valid,
+                      ntrees = 100,
+                      seed = 2020,
+                      hyper_params = xgb_params)
 
-# Look at the hyperparameters for the best model
-print(best_gbm1@model[["model_summary"]])
+xgb_perf <- h2o.getGrid(grid_id = "xgb",
+                         sort_by = "rmse",
+                         decreasing = FALSE)
+xgb_perf
+best_xgb <- h2o.getModel(xgb_perf@model_ids[[1]])
+p <- h2o.predict(best_xgb, test)
+
+h2o.performance(model = best_xgb, newdata = test)
+results <- h2o.cbind(as.h2o(results), p$predict)
+
+## Result export
+tk <- as.h2o(test.kaggle)
+
+p2 <- h2o.predict(best_xgb, tk[2:80])
+r <- as.data.frame(h2o.cbind(tk$Id, p2$predict))
+colnames(r) <- c('Id', 'SalePrice')
+
+write.csv(r, file = 'sub.csv', quote = F, row.names = F)
