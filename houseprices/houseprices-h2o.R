@@ -1,261 +1,299 @@
 
 #######################################################################
-# Loading libraries and data
+# Setup & loading
 #######################################################################
 
+setwd('C:/Users/Sergi/Desktop/intro-ml/houseprices')
 library(data.table)
-library(mice)
 
-setwd('~/Desktop/intro-ml/houseprices')
+train <- fread('train.csv', stringsAsFactor = T)
+test <- fread('test.csv', stringsAsFactors = T)
+# Target: SalePrice
 
-# hp <- read.csv('train.csv') # house prices
-hp <- fread('train.csv', stringsAsFactor = T)
+dim(train)
+dim(test)
 
-dim(hp)
-head(hp)
-summary(hp)
-nas <- apply(hp, 2, function(x) {sum(is.na(x))})
+head(train)
+head(test)
+
+# Number of NAs in train and test
+nas <- apply(train, 2, function(x) {sum(is.na(x))})
 nas[nas > 0]
-# Target: Sales Price
+nas <- apply(test, 2, function(x) {sum(is.na(x))})
+nas[nas > 0]
 
-hp <- hp[,-1] # Removing Id column
-dim(hp)
-# 79 features + 1 target
+# Although represented with numbers, some columns are categorical
+catcols <- c('MSSubClass', 'OverallQual', 'OverallCond')
+train[, (catcols) := lapply(.SD, as.factor), .SDcols = catcols]
+test[, (catcols) := lapply(.SD, as.factor), .SDcols = catcols]
+
 
 #######################################################################
 # Data Cleaning
 #######################################################################
 
-## NUMERICAL VARIABLES
-
 # Which variables are numeric?
-filt <- unlist(lapply(hp, is.numeric))
-nums <- names(hp)[filt]
+filt <- unlist(lapply(train, is.numeric))
+filt <- filt & !(names(train) %in% c('Id', 'SalePrice'))
+numeric_vars <- names(train)[filt]
+numeric_vars
 
-# Although represented with numbers, some columns are categorical
-# Conversion:
-catcols <- c('MSSubClass', 'OverallQual', 'OverallCond')
-hp[, (catcols) := lapply(.SD, as.factor), .SDcols = catcols]
 
-# Which numeric variables do have missing values?
-numsna <- apply(hp[,..nums], 2, function(x) {sum(is.na(x))})
-numsna <- names(numsna[numsna > 0])
-numsna
-# 'LotFrontage' 'MasVnrArea'  'GarageYrBlt'
+# Plotting distributions of numeric variables
+dir.create('plots')
 
-# Imputation 
-plot(density(hp$LotFrontage, na.rm = T), main = 'LotFrontage density')
+pdf(file = './plots/01-densityplots.pdf')
+for(nvar in c(numeric_vars, 'SalePrice')){
+  temp <- unlist(train[, ..nvar])
+  temp <- temp[!(is.na(temp))]
+  
+  plot(density(temp),
+       main = nvar,
+       col = 'cornflowerblue')
+}
+dev.off()
 
-imputed <- mice(hp[,..numsna],
-                m = 5, 
-                maxit = 50, 
-                method = 'pmm',
-                seed = 2020)
+# Scatter plots against SalePrice
+pdf(file = './plots/02-scatterplots-saleprice.pdf')
+for(nvar in numeric_vars) {
+  plot(unlist(train[, ..nvar]),
+       unlist(train[, .(SalePrice)]),
+       pch = 20,
+       col = 'cornflowerblue',
+       xlab = nvar,
+       ylab = 'SalePrice')
+}
+dev.off()
 
-complete.data <- mice::complete(imputed)
-for (coln in numsna){
-    hp[, (coln) := complete.data[, coln]]
+
+# Which variables are categorical?
+filt <- unlist(lapply(train, is.factor))
+cats <- names(train)[filt]
+cats
+
+# Boxplots against SalePrice
+pdf(file = './plots/03-boxplots-saleprice.pdf')
+for(cat in cats) {
+  x <- unlist(train[, ..cat])
+  y <- unlist(train[, .(SalePrice)])
+  boxplot(y ~ x,
+          xlab = cat,
+          ylab = 'SalePrice',
+          las = 2)
+}
+dev.off()
+
+
+# I'm going to work with full dataset from now on
+test[, 'SalePrice' := NA] # Now can be binded (same n of cols)
+fulldata <- rbindlist(list(train, test))
+dim(fulldata)
+
+trainId <- train[, Id]
+testId <- test[, Id]
+
+# Which numeric variables have missing values?
+numsna <- apply(fulldata[,..numeric_vars], 2, function(x) {sum(is.na(x))})
+numsna[numsna > 0]
+
+# Which categories have missing values?
+catsna <- apply(fulldata[,..cats], 2, function(x) {sum(is.na(x))})
+catsna[catsna > 0]
+
+
+### FILLING MISSING DATA
+
+# Filling some columns 'None' based on data description
+colsnone <- c('Alley', 'MasVnrType', 'FireplaceQu', 'GarageType',
+              'GarageFinish', 'GarageQual', 'GarageCond', 'PoolQC',
+              'MiscFeature', 'Fence', 'MasVnrType','BsmtQual',
+              'BsmtCond', 'BsmtExposure', 'BsmtFinType1',
+              'BsmtFinType2')
+myfillna <- function(DT, columns = names(DT), fill = NA) {
+  # Fills missing values from a DT with a specified value and
+  # indicating columns (default all columns and NA filling)
+  for (i in columns)
+    DT[is.na(get(i)), (i):=fill]
 }
 
-# Checking correlations
-nums <- unlist(lapply(hp, is.numeric))
-col <- colorRampPalette(c('yellow', 'black', 'cyan'))(256)
-corr <- round(cor(hp[,..nums]), 2)
-corr2 <- (round(cor(hp[,..nums], method = 'spearman'), 2))
+myfillna(fulldata, colsnone, 'None')
 
-pdf('01-pearson-corr.pdf')
+fulldata[, Utilities := NULL] # Useless column (exclusive categories in train)
+
+# Filling with most common value
+fulldata[is.na(Functional), Functional := 'Typ']
+fulldata[is.na(Electrical), Electrical := 'SBrkr']
+fulldata[is.na(Exterior1st), Exterior1st := 'VinylSd']
+fulldata[is.na(Exterior2nd), Exterior2nd := 'VinylSd']
+fulldata[is.na(KitchenQual), KitchenQual := 'TA']
+fulldata[is.na(SaleType), SaleType := 'WD']
+fulldata[is.na(MSZoning), MSZoning := 'RL']
+
+colszero <- c('GarageYrBlt', 'GarageCars', 'GarageArea',
+              'BsmtFinSF1', 'BsmtFinSF2', 'BsmtUnfSF',
+              'TotalBsmtSF', 'BsmtFullBath', 'BsmtHalfBath',
+              'MasVnrArea')
+
+myfillna(fulldata, colszero, 0)
+
+# LotFrontage: median by group
+median_neigh <- fulldata[, median(LotFrontage, na.rm=T), by = Neighborhood]
+for (neigh in median_neigh$Neighborhood) {
+  m <- median_neigh[Neighborhood == neigh, V1]
+  fulldata[is.na(LotFrontage) & Neighborhood == neigh, LotFrontage := m]
+}
+
+sum(is.na(fulldata)) == dim(test)[1] # TRUE
+
+
+# Checking correlations
+nums <- unlist(lapply(fulldata, is.numeric))
+col <- colorRampPalette(c('yellow', 'black', 'cyan'))(256)
+corr <- round(cor(fulldata[Id %in% trainId, ..nums]), 2)
+corr2 <- (round(cor(fulldata[Id %in% trainId, ..nums],
+                    method = 'spearman'), 2))
+
+pdf('./plots/04-pearson-corr.pdf')
 heatmap(corr, col = col, symm = T)
 dev.off()
 
-pdf('02-spearman-corr.pdf')
+pdf('./plots/05-spearman-corr.pdf')
 heatmap(corr2, col = col, symm = T)
 dev.off()
 
-## CATEGORICAL VARIABLES
+train.data <- fulldata[Id %in% trainId]
+test.data <- fulldata[Id %in% testId]
 
-# Which variables are categorical?
-filt <- unlist(lapply(hp, is.factor))
-cats <- names(hp)[filt]
+# Outliers removal based on scatter plots
+train.data <- train.data[LotFrontage < 300]
+train.data <- train.data[LotArea < 100000]
+train.data <- train.data[BsmtFinSF1 < 5000]
+train.data <- train.data[BsmtFinSF2 < 1400]
+train.data <- train.data[TotalBsmtSF < 5000]
+train.data <- train.data['1stFlrSF' < 4000]
+train.data <- train.data[!(GrLivArea > 4000 & SalePrice < 300000)]
+train.data <- train.data[MiscVal < 5000]
+dim(train.data)
 
-# Which categories do have missing values?
-catsna <- apply(hp[,..cats], 2, function(x) {sum(is.na(x))})
-catsna <- names(catsna[catsna > 0])
-catsna
-summary(hp[,..catsna])
-
-fullcats <- cats[!(cats %in% catsna)] # No NAs subset
-calc_anova <- function(x) {
-    an <- anova(lm(hp[, SalePrice] ~ x))
-    an[1,5]
-}
-
-res <- hp[, lapply(.SD, calc_anova), .SDcols = fullcats]
-data.frame("p-value" = unlist(res),
-           "significant?" = (unlist(res) < 0.05))
-
-sprice <- hp[, SalePrice]
-par(mfrow = c(1, 3))
-boxplot(sprice ~ hp[, Street]) # Similar dist
-boxplot(sprice ~ hp[, Utilities]) # Low counts in 1 group (1)
-boxplot(sprice ~ hp[, LandSlope]) # Similar dist
-
-# Handling missing values
-myfillna = function(DT, columns = names(DT), fill = NA) {
-  for (i in columns)
-    DT[is.na(get(i)), (i):=fill]
-}
-
-myfillna(hp, catsna, 'None')
-
-any(is.na(hp))
 
 #######################################################################
-# Testing
-#######################################################################
-
-## NUMERIC VARIABLES
-
-test <- fread('test.csv', stringsAsFactor = T)
-
-filt <- unlist(lapply(test, is.numeric))
-nums <- names(test)[filt]
-
-catcols <- c('MSSubClass', 'OverallQual', 'OverallCond')
-test[, (catcols) := lapply(.SD, as.factor), .SDcols = catcols]
-
-# Which numeric variables do have missing values?
-numsna <- apply(test[,..nums], 2, function(x) {sum(is.na(x))})
-numsna <- names(numsna[numsna > 0])
-numsna
-# 'LotFrontage' 'MasVnrArea'  'GarageYrBlt'
-
-imputed <- mice(test[,..numsna], m = 5, maxit = 50, method = 'pmm')
-
-complete.data <- mice::complete(imputed)
-for (coln in numsna){
-    test[, (coln) := complete.data[, coln]]
-}
-
-## CATEGORICAL VARIABLES
-
-# Which variables are categorical?
-filt <- unlist(lapply(test, is.factor))
-cats <- names(test)[filt]
-
-# Which categories do have missing values?
-catsna <- apply(test[,..cats], 2, function(x) {sum(is.na(x))})
-catsna <- names(catsna[catsna > 0])
-catsna
-summary(test[,..catsna])
-
-# Handling missing values
-myfillna = function(DT, columns = names(DT), fill = NA) {
-  for (i in columns)
-    DT[is.na(get(i)), (i):=fill]
-}
-
-myfillna(test, catsna, 'None')
-any(is.na(test))
-
-test.kaggle <- test
-
-saveRDS(hp, 'hp.RDS')
-saveRDS(test.kaggle, 'test.kaggle.RDS')
-hp <- readRDS('hp.RDS')
-test.kaggle <- readRDS('test.kaggle.RDS')
-
-#######################################################################
-# Training
+# Modeling
 #######################################################################
 
 library(h2o)
-h2o.init(nthreads = 1)
-hp <- as.h2o(hp)
+h2o.init()
+h2o.removeAll()
+train.data$Id <- NULL
+train.data <- as.h2o(train.data)
 
-parts <- h2o.splitFrame(hp, c(0.6, 0.2), seed = 2020)
-train <- parts[[1]]
-valid <- parts[[2]]
-test <- parts[[3]]
+# parts <- h2o.splitFrame(train.data, c(0.6, 0.2), seed = 2020)
+# train <- parts[[1]]
+# valid <- parts[[2]]
+# test <- parts[[3]]
+# rm(parts)
+
+parts <- h2o.splitFrame(train.data, c(0.2), seed = 2020)
+train <- parts[[2]]
+valid <- parts[[1]]
 rm(parts)
 
 y <- 'SalePrice'
-x <- setdiff(names(hp), y)
+x <- setdiff(names(train), y)
 
-m <- h2o.gbm(x, y, training_frame = train, validation_frame = valid)
-p <- h2o.predict(m, test)
 
-h2o.performance(model = m, newdata = test)
-# MSE:  694751153
-# RMSE:  26358.13
-# MAE:  16868.22
-# RMSLE:  0.1521004
-# Mean Residual Deviance :  694751153
-# R^2 :  0.8906238
+### GLM
 
-results <- as.data.frame(h2o.cbind(test$SalePrice, p$predict))
-head(results)
+glm_params <- list(alpha = c(0, 0.25, 0.5, 0.75, 1),
+                   lambda = c(0.001, 0.01, 0.1, 1, 10, 100))
 
-gbm_params1 <- list(learn_rate = c(0.05, 0.1),
-                    max_depth = c(3, 4, 5),
+glm_grid <- h2o.grid('glm', x = x, y = y,
+                     grid_id = 'glm1',
+                     training_frame = train,
+                     validation_frame = valid,
+                     hyper_params = glm_params,
+                     nfolds = 10,
+                     fold_assignment = 'Modulo',
+                     keep_cross_validation_predictions = T)
+
+glm_perf <- h2o.getGrid(grid_id = "glm1",
+                        sort_by = "rmsle",
+                        decreasing = FALSE)
+glm_perf
+best_glm <- h2o.getModel(glm_perf@model_ids[[1]])
+# h2o.performance(best_glm, newdata = test)
+
+
+### Random forest
+
+rf <- h2o.randomForest(x = x, y = y,
+                       training_frame = train,
+                       validation_frame = valid,
+                       ntrees = 100,
+                       max_depth = 30,
+                       sample_rate = 1,
+                       seed = 2020,
+                       nfolds = 10,
+                       fold_assignment = 'Modulo',
+                       keep_cross_validation_predictions = T)
+# h2o.performance(model = rf, newdata = test)
+
+
+### GBM
+
+gbm_params <- list(learn_rate = c(0.05, 0.1),
                     sample_rate = c(0.8, 1.0),
                     col_sample_rate = c(0.1, 0.2))
 
 
-gbm_grid1 <- h2o.grid("gbm", x = x, y = y,
-                      grid_id = "gbm_grid2",
-                      training_frame = train,
-                      validation_frame = valid,
-                      ntrees = 100,
-                      seed = 1,
-                      hyper_params = gbm_params1,
-                      nfolds = 5)
+gbm_grid <- h2o.grid("gbm", x = x, y = y,
+                     grid_id = "gbm1",
+                     training_frame = train,
+                     validation_frame = valid,
+                     ntrees = 100,
+                     seed = 1,
+                     hyper_params = gbm_params,
+                     nfolds = 10,
+                     fold_assignment = 'Modulo',
+                     keep_cross_validation_predictions = T)
 
-# Get the grid results, sorted by validation AUC
-gbm_gridperf1 <- h2o.getGrid(grid_id = "gbm_grid2",
-                             sort_by = "rmse",
-                             decreasing = FALSE)
-print(gbm_gridperf1)
+gbm_perf <- h2o.getGrid(grid_id = 'gbm1',
+                        sort_by = 'rmsle',
+                        decreasing = FALSE)
+print(gbm_perf)
+best_gbm <- h2o.getModel(gbm_perf@model_ids[[1]])
+# h2o.performance(best_gbm, newdata = test)
 
-# Grab the top GBM model, chosen by validation AUC
-best_gbm1 <- h2o.getModel(gbm_gridperf1@model_ids[[1]])
 
-# Now let's evaluate the model performance on a test set
-# so we get an honest estimate of top model performance
-best_gbm_perf1 <- h2o.performance(model = best_gbm1,
-                                  newdata = test)
-h2o.mse(best_gbm_perf1)
+### Neural networks (default settings)
 
-#################
-# xgboost
+DL <- h2o.deeplearning(x = x, y = y, model_id = 'DL',
+                       training_frame = train,
+                       validation_frame = valid,
+                       nfolds = 10,
+                       fold_assignment = 'Modulo',
+                       keep_cross_validation_predictions = T)
 
-xgb_params <- list(learn_rate = c(0.1, 0.3, 0.5),
-                   max_depth = c(3, 6, 9),
-                   sample_rate = c(0.5, 0.8, 1),
-                   col_sample_rate = c(0.5, 0.8, 1))
+### Ensembling
 
-xgb_grid <- h2o.grid("xgboost", x = x, y = y,
-                      grid_id = "xgb",
-                      training_frame = train,
-                      validation_frame = valid,
-                      ntrees = 100,
-                      seed = 2020,
-                      hyper_params = xgb_params)
+models <- list(best_glm, rf, best_gbm, DL)
 
-xgb_perf <- h2o.getGrid(grid_id = "xgb",
-                         sort_by = "rmse",
-                         decreasing = FALSE)
-xgb_perf
-best_xgb <- h2o.getModel(xgb_perf@model_ids[[1]])
-p <- h2o.predict(best_xgb, test)
+ensemble <- h2o.stackedEnsemble(x = x,
+                                y = y,
+                                training_frame = train,
+                                model_id = 'ensemble',
+                                base_models = models)
 
-h2o.performance(model = best_xgb, newdata = test)
-results <- h2o.cbind(as.h2o(results), p$predict)
+# h2o.performance(ensemble, newdata = test)
 
-## Result export
-tk <- as.h2o(test.kaggle)
 
-p2 <- h2o.predict(best_xgb, tk[2:80])
-r <- as.data.frame(h2o.cbind(tk$Id, p2$predict))
+#######################################################################
+# Predict & export
+#######################################################################
+
+test.data <- as.h2o(test.data)
+
+p <- h2o.predict(ensemble, test.data[2:79])
+r <- as.data.frame(h2o.cbind(test.data$Id, p$predict))
 colnames(r) <- c('Id', 'SalePrice')
 
 write.csv(r, file = 'sub.csv', quote = F, row.names = F)
