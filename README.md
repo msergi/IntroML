@@ -2,9 +2,19 @@
 Solutions to introductory machine learning problems from Kaggle Competitions.
 
 ### Titanic: Machine Learning from Disaster
-* See the competition webpage [here](https://www.kaggle.com/c/titanic)
-* See the notebook [here](titanic/titanic.ipynb). Score: 0.78947.
+* [Competition overview](https://www.kaggle.com/c/titanic)
+* [My notenook](titanic/titanic.ipynb).
+* Tools: Python (scikit-learn)
+* Score: 0.78947 accuracy.
 
 ### Digit Recognizer
-* See the competition webpage [here](https://www.kaggle.com/c/digit-recognizer).
-* See the notebook [here](digit-recognizer/digit-recognizer.ipynb). Score: 0.99000.
+* [Competition overview](https://www.kaggle.com/c/digit-recognizer).
+* [My notenook](digit-recognizer/digit-recognizer.ipynb)
+* Tools: Python (scikit-learn, Keras)
+* Score: 0.99000 accuracy.
+
+### House Prices
+* [Competition overview](https://www.kaggle.com/c/house-prices-advanced-regression-techniques).
+* [My script](https://github.com/msergi/intro-ml/blob/master/houseprices/houseprices-h2o.R).
+* Tools: R (H2O)
+* Score: 0.13179 RMSLE.
