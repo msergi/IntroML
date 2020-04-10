@@ -1,5 +1,5 @@
-# IntroML
-Solutions to introductory machine learning problems from Kaggle Competitions.
+# Introduction to Machine Learning
+This repository contains solutions to introductory machine learning problems from Kaggle Competitions.
 
 ### Titanic: Machine Learning from Disaster
 * [Competition overview](https://www.kaggle.com/c/titanic)
